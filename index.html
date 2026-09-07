@@ -1,1 +1,50 @@
-<!doctype html><html lang="id"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Giftstock</title><link rel="stylesheet" href="styles.css"></head><body><aside><h2>giftstock</h2><small>OUTLET SEMINYAK</small><nav><button data-v="dashboard">Dashboard</button><button data-v="products">Produk</button><button data-v="purchases">Pembelian</button><button data-v="transfers">Transfer stok</button><button data-v="issues">Pengeluaran</button><button data-v="movement">Laporan pergerakan</button></nav></aside><main><header>Inventori Merchandise <span>AS</span></header><div id="app"></div></main><script src="app.js"></script></body></html>
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Giftstock</title>
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- Firebase SDK & Config Modul -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyASIDsnskB16bZwdtyJclVVVCDOuxd_pSw",
+      authDomain: "giftstock-36431.firebaseapp.com",
+      projectId: "giftstock-36431",
+      storageBucket: "giftstock-36431.firebasestorage.app",
+      messagingSenderId: "1065898944190",
+      appId: "1:1065898944190:web:ff842a426d8b94acf260ef"
+    };
+
+    // Inisialisasi Firebase & Firestore Global Window
+    const app = initializeApp(firebaseConfig);
+    window.dbStore = getFirestore(app);
+    window.doc = doc;
+    window.onSnapshot = onSnapshot;
+    window.setDoc = setDoc;
+  </script>
+</head>
+<body>
+  <aside>
+    <h2>giftstock</h2>
+    <small>OUTLET SEMINYAK</small>
+    <nav>
+      <button data-v="dashboard">Dashboard</button>
+      <button data-v="products">Produk</button>
+      <button data-v="purchases">Pembelian</button>
+      <button data-v="transfers">Transfer stok</button>
+      <button data-v="issues">Pengeluaran</button>
+      <button data-v="movement">Laporan pergerakan</button>
+    </nav>
+  </aside>
+  <main>
+    <header>Inventori Merchandise <span>AS</span></header>
+    <div id="app"></div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

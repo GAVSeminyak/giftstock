@@ -1,699 +1,95 @@
-﻿const API_URL = "https://script.google.com/macros/s/AKfycbz-4yd5vY7-rS7ngu1DyfNNI9yNd9rNye_YQIcKoUtR94cSHugpo59vkAosdixlIqZh/exec";
-
+﻿// --- 1. DATA BAWAAN (SEED) & INISIALISASI FIREBASE ---
 const seed = {
   products: [
     { id: 1, name: 'Travel Pouch Batik', sku: 'GFT-TPB-01', minimum: 20 },
     { id: 2, name: 'Luggage Tag Kulit', sku: 'GFT-LTK-02', minimum: 15 }
   ],
   purchases: [
-    { id: 'purchase-1', productId: 1, qty: 80, remaining: 56, date: '2026-08-20', batch: 'BT-260820-01', price: 25000 }
+    { id: 1, productId: 1, qty: 80, remaining: 56, date: '2026-08-20', batch: 'BT-260820-01', price: 25000 }
   ],
   transfers: [
-    { id: 'transfer-1', productId: 1, qty: 24, date: '2026-08-21' }
+    { productId: 1, qty: 24, date: '2026-08-21' }
   ],
   issues: [
-    { id: 'issue-1', productId: 1, qty: 12, date: '2026-08-22', currency: 'USD', amount: 1200, rate: 16520 }
+    { productId: 1, qty: 12, date: '2026-08-22', currency: 'USD', amount: 1200, rate: 16520 }
   ]
 };
 
-let db = JSON.parse(JSON.stringify(seed));
-let view = 'dashboard';
-let editingProductId = null;
-let editingTransaction = null;
+// Inisialisasi awal variabel db
+let db = seed;
 
-const app = document.getElementById('app');
-
-const money = (value = 0) => new Intl.NumberFormat('id-ID').format(Number(value || 0));
-const productById = (id) => db.products.find((product) => String(product.id) === String(id));
-
-function sanitizeText(value) {
-  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// Fungsi simpan data ke Firebase Firestore
+function save() {
+  if (!window.dbStore) return;
+  const docRef = window.doc(window.dbStore, "inventory", "outlet-seminyak");
+  window.setDoc(docRef, db).catch(err => console.error("Gagal menyimpan ke Firebase:", err));
 }
 
-function stockInfo(productId) {
-  const product = productById(productId);
-  const purchaseQty = db.purchases
-    .filter((item) => String(item.productId) === String(productId))
-    .reduce((sum, item) => sum + Number(item.qty || 0), 0);
-  const transferQty = db.transfers
-    .filter((item) => String(item.productId) === String(productId))
-    .reduce((sum, item) => sum + Number(item.qty || 0), 0);
-  const issueQty = db.issues
-    .filter((item) => String(item.productId) === String(productId))
-    .reduce((sum, item) => sum + Number(item.qty || 0), 0);
-
-  return {
-    total: purchaseQty - issueQty,
-    warehouse: purchaseQty - transferQty,
-    display: transferQty - issueQty,
-    minimum: product?.minimum ?? 0
-  };
-}
-
-function averageUnitCost(productId) {
-  const productPurchases = db.purchases.filter((item) => String(item.productId) === String(productId));
-  const totalQty = productPurchases.reduce((sum, item) => sum + Number(item.qty || 0), 0);
-  if (!totalQty) return 0;
-  const totalCost = productPurchases.reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.price || 0), 0);
-  return totalCost / totalQty;
-}
-
-function itemValue(productId) {
-  const info = stockInfo(productId);
-  const average = averageUnitCost(productId);
-  return {
-    average,
-    total: info.total * average,
-    warehouseValue: info.warehouse * average,
-    displayValue: info.display * average
-  };
-}
-
-function getOptions() {
-  return db.products.map((product) => `<option value="${product.id}">${product.name} (${product.sku})</option>`).join('');
-}
-
-const currencies = ['USD', 'SGD', 'EUR', 'AUD', 'GBP', 'CHF', 'JPY', 'CAD', 'MYR', 'NZD', 'HKD', 'CNY', 'BND', 'SAR', 'AED', 'THB', 'PHP', 'KRW', 'INR', 'NTD', 'VND', 'QAR', 'TRY', 'OMR', 'GFT'];
-
-function currencyOptions(selected = '') {
-  const hasCustomCurrency = selected && !currencies.includes(selected);
-  return `${currencies.map((currency) => `<option value="${currency}" ${currency === selected ? 'selected' : ''}>${currency}</option>`).join('')}<option value="__manual__" ${hasCustomCurrency ? 'selected' : ''}>Lainnya</option>`;
-}
-
-function renderNav() {
-  document.querySelectorAll('nav button[data-v]').forEach((button) => {
-    button.classList.toggle('active', button.dataset.v === view);
-  });
-}
-
-function renderDashboard() {
-  const rows = db.products.map((product) => {
-    const info = stockInfo(product.id);
-    const status = info.total <= product.minimum ? 'Restock' : 'Aman';
-    return `
-      <div class="stock">
-        <div>
-          <b>${product.name}</b>
-          <div class="sku">${product.sku}</div>
-        </div>
-        <div class="right">${info.total}</div>
-        <div class="right">${status}</div>
-      </div>
-    `;
-  }).join('');
-
-  const totalStock = db.products.reduce((sum, product) => sum + stockInfo(product.id).total, 0);
-  const warehouseStock = db.products.reduce((sum, product) => sum + stockInfo(product.id).warehouse, 0);
-  const displayStock = db.products.reduce((sum, product) => sum + stockInfo(product.id).display, 0);
-  const cost = db.purchases.reduce((sum, purchase) => sum + Number(purchase.qty || 0) * Number(purchase.price || 0), 0);
-
-  app.innerHTML = `
-    <div class="page">
-      <div class="heading">
-        <div>
-          <h1>Dashboard</h1>
-          <p class="sub">Pantau kondisi stok dan transaksi.</p>
-        </div>
-        <button class="primary" data-action="purchase">+ Catat pembelian</button>
-      </div>
-      <div class="cards">
-        <div class="card"><small>TOTAL STOK</small><strong>${totalStock}</strong></div>
-        <div class="card"><small>DI GUDANG</small><strong>${warehouseStock}</strong></div>
-        <div class="card"><small>DI ETALASE</small><strong>${displayStock}</strong></div>
-        <div class="card"><small>TOTAL PEMBELIAN</small><strong>Rp ${money(cost)}</strong></div>
-      </div>
-      <div class="grid">
-        <section class="panel">
-          <h2>Stok aktual</h2>
-          ${rows}
-        </section>
-        <section class="panel">
-          <h2>Ringkasan pengeluaran</h2>
-          <p>${db.issues.reduce((sum, issue) => sum + Number(issue.qty || 0), 0)} unit diberikan kepada customer.</p>
-          <p>Total transaksi: ${db.issues.length}</p>
-        </section>
-      </div>
-    </div>
-  `;
-}
-
-function renderTable(type) {
-  if (type === 'products') {
-    app.innerHTML = `
-      <div class="page">
-        <div class="heading">
-          <div>
-            <h1>Produk</h1>
-            <p class="sub">Kelola daftar produk dan minimum stock.</p>
-          </div>
-          <button class="primary" data-action="product">+ Tambah produk</button>
-        </div>
-        <section class="panel table-panel">
-          <table>
-            <thead>
-              <tr>
-                <th>PRODUK</th>
-                <th>TOTAL</th>
-                <th>GUDANG</th>
-                <th>ETALASE</th>
-                <th>MINIMUM</th>
-                <th>AKSI</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${db.products.map((product) => {
-                const info = stockInfo(product.id);
-                return `<tr>
-                  <td><b>${product.name}</b><div class="sku">${product.sku}</div></td>
-                  <td>${info.total}</td>
-                  <td>${info.warehouse}</td>
-                  <td>${info.display}</td>
-                  <td>${product.minimum}</td>
-                  <td><button class="edit" data-edit="${product.id}">Edit</button></td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-        </section>
-      </div>
-    `;
+// Fungsi sinkronisasi real-time antar perangkat
+function initFirebaseSync() {
+  if (!window.dbStore) {
+    setTimeout(initFirebaseSync, 100);
     return;
   }
 
-  const labels = {
-    purchases: ['Tanggal', 'Produk', 'Batch FIFO', 'Qty', 'Harga satuan', 'Total beban', 'Sisa', 'Aksi'],
-    transfers: ['Tanggal', 'Produk', 'Alur', 'Jumlah', 'Aksi'],
-    issues: ['Tanggal', 'Produk', 'Jumlah', 'Valas', 'Kurs', 'Aksi']
-  };
+  const docRef = window.doc(window.dbStore, "inventory", "outlet-seminyak");
 
-  const dataKey = type === 'purchases' ? 'purchases' : type === 'transfers' ? 'transfers' : 'issues';
-  const records = db[dataKey].slice().reverse();
-
-  const rows = records.map((record) => {
-    if (type === 'purchases') {
-      const product = productById(record.productId);
-      return `<tr>
-        <td>${record.date}</td>
-        <td>${product ? product.name : '-'}</td>
-        <td><span class="batch">${record.batch || '-'}</span></td>
-        <td>${record.qty}</td>
-        <td>Rp ${money(record.price || 0)}</td>
-        <td>Rp ${money((record.qty || 0) * (record.price || 0))}</td>
-        <td>${record.remaining ?? record.qty}</td>
-        <td><button class="edit" data-transaction="purchase" data-edit="${record.id}">Edit</button><button class="delete" data-transaction="purchase" data-delete="${record.id}">Hapus</button></td>
-      </tr>`;
-    }
-
-    if (type === 'transfers') {
-      const product = productById(record.productId);
-      return `<tr>
-        <td>${record.date}</td>
-        <td>${product ? product.name : '-'}</td>
-        <td>Gudang → Etalase</td>
-        <td>${record.qty}</td>
-        <td><button class="edit" data-transaction="transfer" data-edit="${record.id}">Edit</button><button class="delete" data-transaction="transfer" data-delete="${record.id}">Hapus</button></td>
-      </tr>`;
-    }
-
-    const product = productById(record.productId);
-    return `<tr data-amount="${record.amount || 0}" data-rate="${record.rate || 0}">
-      <td>${record.date}</td>
-      <td>${product ? product.name : '-'}</td>
-      <td>${record.qty}</td>
-      <td>${record.currency || '-'} ${record.amount || 0}</td>
-      <td>Rp ${money(record.rate || 0)}</td>
-      <td><button class="edit" data-transaction="issue" data-edit="${record.id}">Edit</button><button class="delete" data-transaction="issue" data-delete="${record.id}">Hapus</button></td>
-    </tr>`;
-  }).join('');
-
-  app.innerHTML = `
-    <div class="page">
-      <div class="heading">
-        <div>
-          <h1>${type === 'purchases' ? 'Pembelian stok' : type === 'transfers' ? 'Transfer stok' : 'Pengeluaran'}</h1>
-          <p class="sub">Kelola pergerakan merchandise.</p>
-        </div>
-        <button class="primary" data-action="${type === 'purchases' ? 'purchase' : type === 'transfers' ? 'transfer' : 'issue'}">+ Tambah</button>
-      </div>
-      <section class="panel table-panel">
-        <table>
-          <thead>
-            <tr>
-              ${labels[type].map((label) => `<th>${label}</th>`).join('')}
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </section>
-    </div>
-  `;
-}
-
-function movementRows() {
-  const rows = [
-    ...db.purchases.map((item) => ({
-      date: item.date,
-      type: 'Pembelian',
-      product: productById(item.productId)?.name || '-',
-      qty: Number(item.qty || 0),
-      detail: `${item.batch || '-'} · Rp ${money(item.price || 0)}`
-    })),
-    ...db.transfers.map((item) => ({
-      date: item.date,
-      type: 'Transfer',
-      product: productById(item.productId)?.name || '-',
-      qty: Number(item.qty || 0),
-      detail: 'Gudang → Etalase'
-    })),
-    ...db.issues.filter((item) => Number(item.qty || 0) > 0).map((item) => ({
-      date: item.date,
-      type: 'Pengeluaran',
-      product: productById(item.productId)?.name || '-',
-      qty: Number(item.qty || 0),
-      detail: `${item.currency || '-'} ${money(item.amount || 0)} · Kurs Rp ${money(item.rate || 0)}`
-    }))
-  ];
-
-  const typeFilter = document.getElementById('movementType')?.value || '';
-  const sortValue = document.getElementById('movementSort')?.value || 'date-desc';
-
-  const filtered = rows.filter((row) => !typeFilter || row.type === typeFilter);
-  const [field, direction] = sortValue.split('-');
-
-  filtered.sort((a, b) => {
-    const aValue = field === 'date' ? a.date : field === 'product' ? a.product.toLowerCase() : a.qty;
-    const bValue = field === 'date' ? b.date : field === 'product' ? b.product.toLowerCase() : b.qty;
-    if (typeof aValue === 'string' && typeof bValue === 'string') {
-      return (aValue > bValue ? 1 : -1) * (direction === 'desc' ? -1 : 1);
-    }
-    return (aValue > bValue ? 1 : aValue < bValue ? -1 : 0) * (direction === 'desc' ? -1 : 1);
-  });
-
-  return filtered;
-}
-
-function renderMovement() {
-  const rows = movementRows();
-  app.innerHTML = `
-    <div class="page">
-      <div class="heading">
-        <div>
-          <h1>Laporan pergerakan stok</h1>
-          <p class="sub">Seluruh pembelian, transfer, dan pengeluaran dalam satu laporan.</p>
-        </div>
-      </div>
-      <section class="panel table-panel">
-        <div class="toolbar">
-          <h2>Detail pergerakan</h2>
-          <div>
-            <select id="movementType">
-              <option value="">Semua transaksi</option>
-              <option>Pembelian</option>
-              <option>Transfer</option>
-              <option>Pengeluaran</option>
-            </select>
-            <select id="movementSort">
-              <option value="date-desc">Tanggal terbaru</option>
-              <option value="date-asc">Tanggal terlama</option>
-              <option value="product-asc">Produk A-Z</option>
-              <option value="product-desc">Produk Z-A</option>
-              <option value="qty-desc">Jumlah terbesar</option>
-              <option value="qty-asc">Jumlah terkecil</option>
-            </select>
-            <button class="primary" data-download="movement">Unduh Excel</button>
-            <button class="primary" data-download="issue">Unduh Excel Pengeluaran</button>
-          </div>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th>TANGGAL</th>
-              <th>JENIS</th>
-              <th>PRODUK</th>
-              <th>JUMLAH</th>
-              <th>DETAIL TRANSAKSI</th>
-            </tr>
-          </thead>
-          <tbody id="movementRows">
-            ${rows.map((row) => `
-              <tr>
-                <td>${row.date}</td>
-                <td><span class="badge">${row.type}</span></td>
-                <td><b>${row.product}</b></td>
-                <td class="mono">${row.qty} unit</td>
-                <td>${row.detail}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </section>
-    </div>
-  `;
-
-  const movementType = document.getElementById('movementType');
-  const movementSort = document.getElementById('movementSort');
-  if (movementType) movementType.addEventListener('change', renderMovement);
-  if (movementSort) movementSort.addEventListener('change', renderMovement);
-}
-
-function downloadExcel(filename, rows, columns) {
-  const html = `
-    <table>
-      <thead><tr>${columns.map((label) => `<th>${sanitizeText(label)}</th>`).join('')}</tr></thead>
-      <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${sanitizeText(cell)}</td>`).join('')}</tr>`).join('')}</tbody>
-    </table>
-  `;
-
-  const blob = new Blob([`\ufeff<html><meta charset="UTF-8"><body>${html}</body></html>`], { type: 'application/vnd.ms-excel' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-function exportMovementExcel() {
-  const rows = movementRows();
-  const columns = ['Tanggal', 'Jenis Transaksi', 'Produk', 'Jumlah Unit', 'Detail Transaksi'];
-  const data = rows.map((row) => [row.date, row.type, row.product, `${row.qty}`, row.detail]);
-  downloadExcel(`laporan-pergerakan-${new Date().toISOString().slice(0, 10)}.xls`, data, columns);
-}
-
-function exportIssueExcel() {
-  const rows = db.issues.filter((item) => Number(item.qty || 0) > 0);
-  const columns = ['Tanggal', 'Produk', 'Jumlah', 'Valas', 'Jumlah Valas', 'Kurs', 'Nilai (Valas × Kurs)'];
-  const data = rows.map((item) => {
-    const product = productById(item.productId)?.name || '-';
-    const value = Number(item.amount || 0) * Number(item.rate || 0);
-    return [item.date, product, `${item.qty}`, item.currency || '-', `${item.amount || 0}`, `Rp ${money(item.rate || 0)}`, `Rp ${money(value)}`];
-  });
-  downloadExcel(`laporan-pengeluaran-${new Date().toISOString().slice(0, 10)}.xls`, data, columns);
-}
-
-function modal(type, id = null) {
-  editingProductId = id;
-  if (type === 'product') {
-    const product = productById(id);
-    document.body.insertAdjacentHTML('beforeend', `
-      <div class="modal-bg">
-        <form class="modal" id="modalForm" data-kind="product" data-id="${id ?? ''}">
-          <h2>${id ? 'Edit produk' : 'Tambah produk'}</h2>
-          <div class="fields">
-            <div class="field full">
-              <label>Nama produk</label>
-              <input name="name" required value="${product ? product.name : ''}">
-            </div>
-            <div class="field">
-              <label>SKU</label>
-              <input name="sku" required value="${product ? product.sku : ''}">
-            </div>
-            <div class="field">
-              <label>Stok minimum</label>
-              <input name="minimum" type="number" required value="${product ? product.minimum : 0}">
-            </div>
-          </div>
-          <div class="actions">
-            <button type="button" data-close>Batal</button>
-            <button class="primary">Simpan</button>
-          </div>
-        </form>
-      </div>
-    `);
-    document.getElementById('modalForm').addEventListener('submit', saveProductForm);
-    return;
-  }
-
-  const productId = id ?? db.products[0]?.id;
-  const record = type === 'purchase' ? db.purchases.find((item) => item.id === id) : type === 'transfer' ? db.transfers.find((item) => item.id === id) : db.issues.find((item) => item.id === id);
-
-  editingTransaction = record ? { type, id: record.id } : null;
-
-  const title = type === 'purchase' ? 'Catat pembelian' : type === 'transfer' ? 'Transfer ke etalase' : 'Pengeluaran customer';
-  const existing = record || {};
-
-  const commonFields = `
-    <div class="field full">
-      <label>Produk</label>
-      <select name="productId">${getOptions()}</select>
-    </div>
-    <div class="field">
-      <label>Jumlah unit</label>
-      <input name="qty" type="number" min="1" required value="${existing.qty || ''}">
-    </div>
-    <div class="field"><label>Tanggal</label><input name="date" type="date" required value="${existing.date || new Date().toISOString().slice(0, 10)}"></div>
-  `;
-
-  const extraFields = type === 'purchase'
-    ? `<div class="field"><label>Harga beli satuan (IDR)</label><input name="price" type="number" min="0" required value="${existing.price || 0}"></div>`
-    : type === 'issue'
-      ? `
-          <div class="field"><label>Mata uang</label><select name="currency">${currencyOptions(existing.currency || 'USD')}</select></div>
-          <div class="field manual-currency-field" ${existing.currency && !currencies.includes(existing.currency) ? '' : 'hidden'}><label>Kode mata uang manual</label><input name="manualCurrency" maxlength="10" value="${existing.currency && !currencies.includes(existing.currency) ? sanitizeText(existing.currency) : ''}" placeholder="Contoh: IDR"></div>
-          <div class="field"><label>Jumlah valas</label><input name="amount" type="number" required value="${existing.amount || 0}"></div>
-          <div class="field"><label>Kurs saat itu</label><input name="rate" type="number" required value="${existing.rate || 0}"></div>
-        `
-      : '';
-
-  document.body.insertAdjacentHTML('beforeend', `
-    <div class="modal-bg">
-      <form class="modal" id="transactionForm" data-kind="${type}" data-id="${id ?? ''}">
-        <h2>${title}</h2>
-        <div class="fields">
-          ${commonFields}
-          ${extraFields}
-        </div>
-        <div class="actions">
-          <button type="button" data-close>Batal</button>
-          <button class="primary">Simpan</button>
-        </div>
-      </form>
-    </div>
-  `);
-
-  const form = document.getElementById('transactionForm');
-  if (form) {
-    const select = form.querySelector('select[name="productId"]');
-    if (select && (record || productId)) {
-      select.value = String(record ? record.productId : productId);
-    }
-    const currencySelect = form.querySelector('select[name="currency"]');
-    const manualCurrencyField = form.querySelector('.manual-currency-field');
-    const toggleManualCurrency = () => {
-      if (!currencySelect || !manualCurrencyField) return;
-      manualCurrencyField.hidden = currencySelect.value !== '__manual__';
-      const manualCurrencyInput = manualCurrencyField.querySelector('input');
-      if (manualCurrencyInput) manualCurrencyInput.required = currencySelect.value === '__manual__';
-    };
-    currencySelect?.addEventListener('change', toggleManualCurrency);
-    toggleManualCurrency();
-    form.addEventListener('submit', saveTransactionForm);
-  }
-}
-
-function saveProductForm(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const formData = new FormData(form);
-  const name = String(formData.get('name') || '').trim();
-  const sku = String(formData.get('sku') || '').trim();
-  const minimum = Number(formData.get('minimum') || 0);
-
-  if (!name || !sku) return;
-
-  const existing = db.products.find((product) => product.sku.toLowerCase() === sku.toLowerCase() && String(product.id) !== String(editingProductId));
-  if (existing) {
-    alert('SKU sudah digunakan');
-    return;
-  }
-
-  if (editingProductId) {
-    const product = productById(editingProductId);
-    if (product) {
-      product.name = name;
-      product.sku = sku;
-      product.minimum = minimum;
-    }
-  } else {
-    db.products.push({ id: Date.now(), name, sku, minimum });
-  }
-
-  form.closest('.modal-bg')?.remove();
-  editingProductId = null;
-  save();
-  render();
-}
-
-function saveTransactionForm(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const formData = new FormData(form);
-  const type = form.dataset.kind;
-  const id = form.dataset.id || null;
-  const productId = Number(formData.get('productId'));
-  const qty = Number(formData.get('qty') || 0);
-  const date = String(formData.get('date') || new Date().toISOString().slice(0, 10));
-
-  if (!productId || !qty) return;
-
-  if (type === 'purchase') {
-    const price = Number(formData.get('price') || 0);
-    const payload = {
-      id: id || `purchase-${Date.now()}`,
-      productId,
-      qty,
-      remaining: qty,
-      date,
-      batch: `BT-${date.replace(/-/g, '').slice(2)}-${String(db.purchases.length + 1).padStart(2, '0')}`,
-      price
-    };
-
-    if (id) {
-      const existing = db.purchases.find((item) => item.id === id);
-      if (existing) Object.assign(existing, payload);
+  window.onSnapshot(docRef, (docSnap) => {
+    if (docSnap.exists()) {
+      db = docSnap.data();
+      db.products = db.products || [];
+      db.purchases = db.purchases || [];
+      db.transfers = db.transfers || [];
+      db.issues = db.issues || [];
     } else {
-      db.purchases.push(payload);
+      save(); // Jika Firestore masih kosong, upload data seed pertama kali
     }
-  } else if (type === 'transfer') {
-    const payload = {
-      id: id || `transfer-${Date.now()}`,
-      productId,
-      qty,
-      date
-    };
-
-    if (id) {
-      const existing = db.transfers.find((item) => item.id === id);
-      if (existing) Object.assign(existing, payload);
-    } else {
-      db.transfers.push(payload);
-    }
-  } else if (type === 'issue') {
-    const selectedCurrency = String(formData.get('currency') || 'USD');
-    const currency = selectedCurrency === '__manual__'
-      ? String(formData.get('manualCurrency') || '').trim().toUpperCase()
-      : selectedCurrency;
-    if (!currency) return;
-
-    const payload = {
-      id: id || `issue-${Date.now()}`,
-      productId,
-      qty,
-      date,
-      currency,
-      amount: Number(formData.get('amount') || 0),
-      rate: Number(formData.get('rate') || 0)
-    };
-
-    if (id) {
-      const existing = db.issues.find((item) => item.id === id);
-      if (existing) Object.assign(existing, payload);
-    } else {
-      db.issues.push(payload);
-    }
-  }
-
-  form.closest('.modal-bg')?.remove();
-  editingTransaction = null;
-  save();
-  render();
-}
-
-function deleteTransaction(type, id) {
-  const key = type === 'purchase' ? 'purchases' : type === 'transfer' ? 'transfers' : 'issues';
-  db[key] = db[key].filter((item) => item.id !== id);
-  save();
-  render();
-}
-
-function render() {
-  renderNav();
-  if (view === 'dashboard') return renderDashboard();
-  if (view === 'products') return renderTable('products');
-  if (view === 'purchases') return renderTable('purchases');
-  if (view === 'transfers') return renderTable('transfers');
-  if (view === 'issues') return renderTable('issues');
-  if (view === 'movement') return renderMovement();
-  renderDashboard();
-}
-
-async function save() {
-  try {
-    if (typeof fetch === 'function') {
-      await fetch(API_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(db)
-      });
-    }
-  } catch (error) {
-    console.warn('Gagal menyimpan data:', error);
-  }
-}
-
-async function initApp() {
-  try {
-    if (typeof fetch === 'function') {
-      const response = await fetch(API_URL);
-      if (response && response.ok) {
-        const remoteData = await response.json();
-        if (remoteData && Array.isArray(remoteData.products) && remoteData.products.length) {
-          db = remoteData;
-        } else {
-          db = JSON.parse(JSON.stringify(seed));
-        }
-      }
-    }
-  } catch (error) {
-    console.warn('Gagal memuat data dari Google Drive, memakai seed default:', error);
-    db = JSON.parse(JSON.stringify(seed));
-  }
-
-  render();
-}
-
-document.addEventListener('click', (event) => {
-  const closeButton = event.target.closest('[data-close]');
-  if (closeButton) {
-    closeButton.closest('.modal-bg')?.remove();
-    return;
-  }
-
-  const downloadButton = event.target.closest('[data-download]');
-  if (downloadButton) {
-    if (downloadButton.dataset.download === 'movement') exportMovementExcel();
-    if (downloadButton.dataset.download === 'issue') exportIssueExcel();
-    return;
-  }
-
-  const viewButton = event.target.closest('[data-v]');
-  if (viewButton) {
-    view = viewButton.dataset.v;
     render();
-    return;
-  }
+  });
+}
 
-  const actionButton = event.target.closest('[data-action]');
-  if (actionButton) {
-    modal(actionButton.dataset.action);
-    return;
-  }
+// Jalankan sync saat aplikasi pertama kali dimuat
+initFirebaseSync();
 
-  const editButton = event.target.closest('[data-edit]');
-  if (editButton) {
-    if (editButton.dataset.transaction) {
-      modal(editButton.dataset.transaction, editButton.dataset.edit);
-    } else {
-      modal('product', editButton.dataset.edit);
-    }
-    return;
-  }
+// --- 2. LOGIKA FITUR LAINNYA ---
+function manualCurrencyOption(selected=''){const custom=selected&&!currencies.includes(selected);return currencies.map(x=>`<option value="${x}" ${x===selected?'selected':''}>${x}</option>`).join('')+`<option value="__CUSTOM__" data-custom="${custom?selected:''}" ${custom?'selected':''}>Lainnya</option>`}
+currencyOptions=(selected='')=>{const available=[...new Set([...currencies,'GFT'])],custom=selected&&!available.includes(selected);return available.map(x=>`<option value="${x}" ${x===selected?'selected':''}>${x}</option>`).join('')+`<option value="__CUSTOM__" data-custom="${custom?selected:''}" ${custom?'selected':''}>Lainnya</option>`}
+function syncManualCurrency(form){const select=form.querySelector('[name="currency"]');if(!select)return;let input=form.querySelector('[name="customCurrency"]');if(!input){input=document.createElement('input');input.name='customCurrency';input.placeholder='Tulis kode mata uang';select.insertAdjacentElement('afterend',input)}const custom=select.value==='__CUSTOM__';input.hidden=!custom;input.required=custom;if(custom&&!input.value)input.value=select.selectedOptions[0]?.dataset.custom||''}
+document.addEventListener('change',event=>{if(event.target.matches('select[name="currency"]'))syncManualCurrency(event.target.form)});
+document.addEventListener('submit',event=>{const form=event.target;if(!form.matches('#modalForm,#transactionForm'))return;syncManualCurrency(form);const select=form.querySelector('[name="currency"]'),input=form.querySelector('[name="customCurrency"]');if(select?.value==='__CUSTOM__'){const value=String(input?.value||'').trim();if(!value){event.preventDefault();return alert('Mata uang wajib diisi')}let option=select.querySelector(`[value="${CSS.escape(value)}"]`);if(!option){option=document.createElement('option');option.value=value;option.textContent=value;select.append(option)}select.value=value}},true);
+function ensureManualCurrencyOption(form){const select=form?.querySelector('[name="currency"]');if(!select||select.querySelector('[value="__CUSTOM__"]'))return;const option=document.createElement('option');option.value='__CUSTOM__';option.textContent='Lainnya';select.append(option)}
+document.addEventListener('click',()=>setTimeout(()=>document.querySelectorAll('#modalForm,#transactionForm').forEach(form=>{ensureManualCurrencyOption(form);syncManualCurrency(form)}),0));
+function addMovementMonthFilter(){if(view!=='movement'||document.querySelector('[data-movement-month]'))return;const toolbar=document.querySelector('#movementRows')?.closest('.table-panel')?.querySelector('.toolbar');if(!toolbar)return;const select=document.createElement('select');select.dataset.movementMonth='true';select.innerHTML='<option value="">Semua bulan</option><option value="01">Januari</option><option value="02">Februari</option><option value="03">Maret</option><option value="04">April</option><option value="05">Mei</option><option value="06">Juni</option><option value="07">Juli</option><option value="08">Agustus</option><option value="09">September</option><option value="10">Oktober</option><option value="11">November</option><option value="12">Desember</option>';toolbar.querySelector('div')?.prepend(select)}
+function applyMovementMonthFilter(){const select=document.querySelector('[data-movement-month]'),rows=document.querySelectorAll('#movementRows tr');if(!select)return;rows.forEach(row=>{const date=row.children[0]?.textContent.trim()||'';row.hidden=!!select.value&&date.split('-')[1]!==select.value})}
+document.addEventListener('click',event=>{if(event.target.closest('[data-v="movement"]'))setTimeout(()=>{addMovementMonthFilter();applyMovementMonthFilter()},0)});document.addEventListener('change',event=>{if(event.target.matches('[data-movement-month]'))applyMovementMonthFilter();if(event.target.id==='movementType'||event.target.id==='movementSort')setTimeout(applyMovementMonthFilter,0)});
+const mutationPassword='giftstock2026';
+function requestMutationPassword(button){const label=button.dataset.delete?'menghapus':'mengedit';document.body.insertAdjacentHTML('beforeend',`<div class="password-bg"><form class="password-card" id="passwordForm"><h2>Verifikasi akses</h2><p>Masukkan password untuk ${label} data.</p><input name="password" type="password" autocomplete="current-password" required autofocus><div class="password-error"></div><div class="actions"><button type="button" data-close-password>Batal</button><button class="primary">Lanjutkan</button></div></form></div>`);const overlay=document.querySelector('.password-bg'),form=overlay.querySelector('#passwordForm');form.addEventListener('submit',event=>{event.preventDefault();if(new FormData(form).get('password')!==mutationPassword){form.querySelector('.password-error').textContent='Password salah. Akses ditolak.';return}overlay.remove();if(button.dataset.delete)deleteTransaction(button.dataset.transaction,button.dataset.delete);else if(button.dataset.transaction)transactionModal(button.dataset.transaction,button.dataset.edit);else modal('product',button.dataset.edit)});overlay.querySelector('[data-close-password]').addEventListener('click',()=>overlay.remove())}
+function verifyMutationAccess(event){const button=event.target.closest('[data-edit],[data-delete]');if(!button)return;event.preventDefault();event.stopImmediatePropagation();requestMutationPassword(button)}
+document.addEventListener('click',verifyMutationAccess,true);
+function excelText(value){return String(value??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function downloadMovementExcel(){const rows=[...db.purchases.map(x=>({date:x.date,type:'Pembelian',product:product(x.productId)?.name||'-',qty:x.qty,value:x.qty*(x.price||0),detail:`${x.batch} - Rp ${money(x.price||0)}`})),...db.transfers.map(x=>({date:x.date,type:'Transfer',product:product(x.productId)?.name||'-',qty:x.qty,value:x.qty*movementUnitValue(product(x.productId)?.name||'-'),detail:'Gudang ke Etalase'})),...db.issues.filter(x=>x.qty).map(x=>({date:x.date,type:'Pengeluaran',product:product(x.productId)?.name||'-',qty:x.qty,value:x.qty*movementUnitValue(product(x.productId)?.name||'-'),detail:`${x.currency} ${money(x.amount||0)} - Kurs Rp ${money(x.rate||0)}`}))];const html=`<table><thead><tr><th>Tanggal</th><th>Jenis Transaksi</th><th>Produk</th><th>Jumlah Unit</th><th>Nilai Produk (IDR)</th><th>Detail Transaksi</th></tr></thead><tbody>${rows.map(x=>`<tr><td>${excelText(x.date)}</td><td>${excelText(x.type)}</td><td>${excelText(x.product)}</td><td>${x.qty}</td><td>${x.value}</td><td>${excelText(x.detail)}</td></tr>`).join('')}</tbody></table>`;const blob=new Blob([`\ufeff<html><meta charset="UTF-8"><body>${html}</body></html>`],{type:'application/vnd.ms-excel'});const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`laporan-pergerakan-${new Date().toISOString().slice(0,10)}.xls`;link.click();URL.revokeObjectURL(url)}
+function downloadIssueExcel(){const rows=db.issues.filter(x=>x.qty).map(x=>{const productName=product(x.productId)?.name||'-';return{date:x.date,type:'Pengeluaran',product:productName,qty:x.qty,value:x.qty*movementUnitValue(productName),currency:x.currency||'-',amount:x.amount||0,rate:x.rate||0,total:x.amount*(x.rate||0)}});const html=`<table><thead><tr><th>Tanggal</th><th>Jenis</th><th>Produk</th><th>Jumlah Produk</th><th>Nilai Produk</th><th>Mata Uang</th><th>Jumlah Mata Uang</th><th>Kurs Mata Uang</th><th>Jumlah Perkalian (Jumlah Mata Uang × Kurs)</th></tr></thead><tbody>${rows.map(x=>`<tr><td>${excelText(x.date)}</td><td>${excelText(x.type)}</td><td>${excelText(x.product)}</td><td>${x.qty}</td><td>Rp ${money(x.value)}</td><td>${excelText(x.currency)}</td><td>${x.amount}</td><td>Rp ${money(x.rate)}</td><td>Rp ${money(x.total)}</td></tr>`).join('')}</tbody></table>`;const blob=new Blob([`\ufeff<html><meta charset="UTF-8"><body>${html}</body></html>`],{type:'application/vnd.ms-excel'});const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`laporan-pengeluaran-${new Date().toISOString().slice(0,10)}.xls`;link.click();URL.revokeObjectURL(url)}
+function addMovementDownloadButton(){if(view!=='movement')return;const toolbar=document.querySelector('#movementRows')?.closest('.table-panel')?.querySelector('.toolbar');if(!toolbar)return;if(!document.querySelector('[data-download-movement]')){const button=document.createElement('button');button.className='primary';button.dataset.downloadMovement='true';button.textContent='Unduh Excel';button.addEventListener('click',downloadMovementExcel);toolbar.appendChild(button)}if(!document.querySelector('[data-download-issue]')){const button=document.createElement('button');button.className='primary';button.dataset.downloadIssue='true';button.textContent='Unduh Excel Pengeluaran';button.addEventListener('click',downloadIssueExcel);toolbar.appendChild(button)}}
+document.addEventListener('click',event=>{if(event.target.closest('[data-v="movement"]'))setTimeout(addMovementDownloadButton,0)});
+document.addEventListener('change',event=>{if(event.target.id==='movementType'||event.target.id==='movementSort')setTimeout(decorateMovementTable,0)});
+document.addEventListener('click',event=>{if(event.target.closest('[data-v="movement"]'))setTimeout(decorateMovementTable,0)})
 
-  const deleteButton = event.target.closest('[data-delete]');
-  if (deleteButton) {
-    deleteTransaction(deleteButton.dataset.transaction, deleteButton.dataset.delete);
-  }
-});
-
-initApp();
+let view='dashboard';let editing=null;let editingTransaction=null;const app=document.querySelector('#app');const money=n=>new Intl.NumberFormat('id-ID').format(n);const product=id=>db.products.find(x=>x.id==id);
+function stock(id){const warehouse=db.purchases.filter(x=>x.productId==id).reduce((a,x)=>a+x.remaining,0);const display=db.transfers.filter(x=>x.productId==id).reduce((a,x)=>a+x.qty,0)-db.issues.filter(x=>x.productId==id).reduce((a,x)=>a+x.qty,0);return{warehouse,display,total:warehouse+display}}
+function header(title,sub,action){return`<div class="heading"><div><h1>${title}</h1><p class="sub">${sub}</p></div>${action||''}</div>`}function options(){return db.products.map(x=>`<option value="${x.id}">${x.name} (${x.sku})</option>`).join('')}const currencies=['USD','SGD','EUR','AUD','GBP','CHF','JPY','CAD','MYR','NZD','HKD','CNY','BND','SAR','AED','THB','PHP','KRW','INR','NTD','VND','QAR','TRY','OMR'];function currencyOptions(selected=''){return currencies.map(x=>`<option ${x===selected?'selected':''}>${x}</option>`).join('')}
+function dashboard(){let all=db.products.map(x=>stock(x.id)),total=all.reduce((a,x)=>a+x.total,0),warehouse=all.reduce((a,x)=>a+x.warehouse,0),display=all.reduce((a,x)=>a+x.display,0),cost=db.purchases.reduce((a,x)=>a+x.qty*x.price,0);app.innerHTML=`<div class="page">${header('Dashboard','Pantau kondisi stok dan transaksi.','<button class="primary" data-action="purchase">+ Catat pembelian</button>')}<div class="cards"><div class="card"><small>TOTAL STOK</small><strong>${total}</strong></div><div class="card"><small>DI GUDANG</small><strong>${warehouse}</strong></div><div class="card"><small>DI ETALASE</small><strong>${display}</strong></div><div class="card"><small>TOTAL PEMBELIAN</small><strong>Rp ${money(cost)}</strong></div></div><div class="grid"><section class="panel"><h2>Stok aktual</h2>${db.products.map(x=>{const s=stock(x.id);return`<div class="stock"><div><b>${x.name}</b><div class="sku">${x.sku}</div></div><div class="right">${s.total}</div><div class="right">${s.total<=x.minimum?'Restock':'Aman'}</div></div>`}).join('')}</section><section class="panel"><h2>Ringkasan pengeluaran</h2><p>${db.issues.reduce((a,x)=>a+x.qty,0)} unit diberikan kepada customer.</p><p>Total transaksi: ${db.issues.length}</p></section></div></div>`}
+function itemValue(id){const s=stock(id),batches=db.purchases.filter(x=>x.productId==id).sort((a,b)=>a.date.localeCompare(b.date));let warehouseValue=batches.reduce((sum,x)=>sum+x.remaining*(x.price||0),0);let average=batches.length?batches.reduce((sum,x)=>sum+x.qty*(x.price||0),0)/batches.reduce((sum,x)=>sum+x.qty,0):0;return{warehouseValue,average,warehouse:warehouseValue,display:s.display*average,total:warehouseValue+s.display*average}}
+function issueValue(id,qty){return qty*itemValue(id).average}
+function detailedDashboard(){const summary=db.products.map(x=>({product:x,stock:stock(x.id),value:itemValue(x.id)})),total=summary.reduce((a,x)=>a+x.stock.total,0),warehouse=summary.reduce((a,x)=>a+x.stock.warehouse,0),display=summary.reduce((a,x)=>a+x.stock.display,0),value=summary.reduce((a,x)=>a+x.value.total,0),purchaseValue=db.purchases.reduce((a,x)=>a+x.qty*(x.price||0),0),issueQty=db.issues.reduce((a,x)=>a+x.qty,0);app.innerHTML=`<div class="page">${header('Dashboard','Pantau kondisi stok dan nilai merchandise secara detail.','<button class="primary" data-action="purchase">+ Catat pembelian</button>')}<div class="cards"><div class="card"><small>TOTAL STOK</small><strong>${total}</strong><div class="meta">${db.products.length} item terdaftar</div></div><div class="card"><small>DI GUDANG</small><strong>${warehouse}</strong><div class="meta">${summary.filter(x=>x.stock.warehouse>0).length} item tersedia</div></div><div class="card"><small>DI ETALASE</small><strong>${display}</strong><div class="meta">${issueQty} unit sudah dikeluarkan</div></div><div class="card"><small>NILAI STOK SAAT INI</small><strong>Rp ${money(value)}</strong><div class="meta">harga pokok pembelian</div></div></div><section class="panel table-panel"><div class="toolbar"><h2>Detail stok per item</h2><p>Nilai stok dihitung dari harga beli batch dan saldo unit saat ini.</p></div><table><thead><tr><th>PRODUK</th><th>SKU</th><th>TOTAL UNIT</th><th>GUDANG</th><th>ETALASE</th><th>MINIMUM</th><th>STATUS</th><th>NILAI STOK</th></tr></thead><tbody>${summary.map(x=>`<tr><td><b>${x.product.name}</b></td><td class="mono">${x.product.sku}</td><td class="mono">${x.stock.total}</td><td class="mono">${x.stock.warehouse}</td><td class="mono">${x.stock.display}</td><td class="mono">${x.product.minimum}</td><td>${x.stock.total<=x.product.minimum?'<span class="badge low">Perlu restock</span>':'<span class="badge">Aman</span>'}</td><td class="mono">Rp ${money(x.value.total)}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="2">TOTAL</th><th>${total}</th><th>${warehouse}</th><th>${display}</th><th colspan="2"></th><th>Rp ${money(value)}</th></tr></tfoot></table></section><div class="grid"><section class="panel"><h2>Ringkasan nilai</h2><p>Total nilai seluruh pembelian: <b>Rp ${money(purchaseValue)}</b></p><p>Total nilai stok tersisa: <b>Rp ${money(value)}</b></p></section><section class="panel"><h2>Ringkasan pengeluaran</h2><p>${issueQty} unit diberikan kepada customer.</p><p>Total transaksi: ${db.issues.filter(x=>x.qty).length}</p></section></div></div>`}
+function table(type){const config={products:['Produk','PRODUK|TOTAL|GUDANG|ETALASE|MINIMUM|AKSI'],purchases:['Pembelian stok','TANGGAL|PRODUK|BATCH FIFO|QTY|HARGA SATUAN|TOTAL BEBAN|SISA|AKSI'],transfers:['Transfer stok','TANGGAL|PRODUK|ALUR|JUMLAH|AKSI'],issues:['Pengeluaran','TANGGAL|PRODUK|JUMLAH|VALAS|KURS|AKSI']}[type];let rows='';if(type==='products')rows=db.products.map(x=>{const s=stock(x.id);return`<tr><td><b>${x.name}</b><div class="sku">${x.sku}</div></td><td>${s.total}</td><td>${s.warehouse}</td><td>${s.display}</td><td>${x.minimum}</td><td><button class="edit" data-edit="${x.id}">Edit</button></td></tr>`}).join('');if(type==='purchases')rows=db.purchases.slice().reverse().map(x=>`<tr><td>${x.date}</td><td>${product(x.productId).name}</td><td><span class="batch">${x.batch}</span></td><td>${x.qty}</td><td>Rp ${money(x.price)}</td><td>Rp ${money(x.qty*x.price)}</td><td>${x.remaining}</td><td><button class="edit" data-transaction="purchase" data-edit="${x.id}">Edit</button><button class="delete" data-transaction="purchase" data-delete="${x.id}">Hapus</button></td></tr>`).join('');if(type==='transfers')rows=db.transfers.slice().reverse().map(x=>`<tr><td>${x.date}</td><td>${product(x.productId).name}</td><td>Gudang → Etalase</td><td>${x.qty}</td><td><button class="edit" data-transaction="transfer" data-edit="${x.id}">Edit</button><button class="delete" data-transaction="transfer" data-delete="${x.id}">Hapus</button></td></tr>`).join('');if(type==='issues')rows=db.issues.filter(x=>x.qty).slice().reverse().map(x=>`<tr data-amount="${x.amount||0}" data-rate="${x.rate||0}"><td>${x.date}</td><td>${product(x.productId).name}</td><td>${x.qty}</td><td>${x.currency} ${x.amount}</td><td>Rp ${money(x.rate)}</td><td><button class="edit" data-transaction="issue" data-edit="${x.id}">Edit</button><button class="delete" data-transaction="issue" data-delete="${x.id}">Hapus</button></td></tr>`).join('');app.innerHTML=`<div class="page">${header(config[0],'Kelola pergerakan merchandise.','<button class="primary" data-action="'+(type==='products'?'product':type.slice(0,-1))+'">+ Tambah</button>')}<section class="panel table-panel"><table><thead><tr>${config[1].split('|').map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows||'<tr><td colspan="8">Belum ada data.</td></tr>'}</tbody></table></section></div>`}
+function modal(type,id){editing=id;const isProduct=type==='product';const fields=isProduct?`<div class="field full"><label>Nama produk</label><input name="name" required value="${id?product(id).name:''}"></div><div class="field"><label>SKU</label><input name="sku" required value="${id?product(id).sku:''}"></div><div class="field"><label>Stok minimum</label><input name="minimum" type="number" required value="${id?product(id).minimum:''}"></div>`:`<div class="field full"><label>Produk</label><select name="productId">${options()}</select></div><div class="field"><label>Jumlah unit</label><input name="qty" type="number" min="1" required></div><div class="field"><label>Tanggal</label><input name="date" type="date" value="${new Date().toISOString().slice(0,10)}" required></div>${type==='purchase'?'<div class="field"><label>Harga beli satuan (IDR)</label><input name="price" type="number" min="0" required></div>':type==='issue'?'<div class="field"><label>Mata uang</label><select name="currency">'+currencyOptions()+'</select></div><div class="field"><label>Jumlah valas</label><input name="amount" type="number" required></div><div class="field"><label>Kurs saat itu</label><input name="rate" type="number" required></div>':''}`;document.body.insertAdjacentHTML('beforeend',`<div class="modal-bg"><form class="modal" id="modalForm"><h2>${isProduct?(id?'Edit produk':'Tambah produk'):type==='purchase'?'Catat pembelian':type==='transfer'?'Transfer ke etalase':'Pengeluaran customer'}</h2><div class="fields">${fields}</div><div class="actions"><button type="button" data-close>Batal</button> <button class="primary">Simpan</button></div></form></div>`);document.querySelector('#modalForm').onsubmit=e=>submit(e,type)}
+function submit(e,type){e.preventDefault();const f=new FormData(e.target);if(type==='product'){const name=String(f.get('name')).trim(),sku=String(f.get('sku')).trim();if(db.products.some(x=>x.sku.toLowerCase()===sku.toLowerCase()&&x.id!=editing))return alert('SKU sudah digunakan');if(editing){Object.assign(product(editing),{name,sku,minimum:+f.get('minimum')})}else db.products.push({id:'product-'+Date.now(),name,sku,minimum:+f.get('minimum')})}else{const productId=f.get('productId'),qty=+f.get('qty'),date=f.get('date');if(type==='purchase'){db.purchases.push({id:'purchase-'+Date.now(),productId,qty,remaining:qty,date,batch:`BT-${date.replace(/-/g,'').slice(2)}-${String(db.purchases.length+1).padStart(2,'0')}`,price:+f.get('price')});recalculate(productId)}else if(type==='transfer'){if(qty>stock(productId).warehouse)return alert('Stok gudang tidak mencukupi');db.transfers.push({id:'transfer-'+Date.now(),productId,qty,date});recalculate(productId)}else{if(qty>stock(productId).display)return alert('Stok etalase tidak mencukupi');db.issues.push({id:'issue-'+Date.now(),productId,qty,date,currency:f.get('currency'),amount:+f.get('amount'),rate:+f.get('rate')})}}save();document.querySelector('.modal-bg')?.remove();editing=null;render()}
+function recalculate(productId){let left=db.transfers.filter(x=>x.productId==productId).reduce((a,x)=>a+x.qty,0);db.purchases.filter(x=>x.productId==productId).sort((a,b)=>a.date.localeCompare(b.date)).forEach(x=>{const used=Math.min(x.qty,left);x.remaining=x.qty-used;left-=used})}
+function transactionModal(type,id){const record=db[type==='purchase'?'purchases':type==='transfer'?'transfers':'issues'].find(x=>x.id==id);editingTransaction={type,id};const fields=type==='purchase'?`<div class="field full"><label>Produk</label><select name="productId">${options()}</select></div><div class="field"><label>Jumlah unit</label><input name="qty" type="number" min="1" required value="${record.qty}"></div><div class="field"><label>Harga beli satuan (IDR)</label><input name="price" type="number" min="0" required value="${record.price||0}"></div><div class="field full"><label>Tanggal pembelian</label><input name="date" type="date" required value="${record.date}"></div>`:type==='transfer'?`<div class="field full"><label>Produk</label><select name="productId">${options()}</select></div><div class="field"><label>Jumlah unit</label><input name="qty" type="number" min="1" required value="${record.qty}"></div><div class="field"><label>Tanggal</label><input name="date" type="date" required value="${record.date}"></div>`:`<div class="field full"><label>Produk</label><select name="productId">${options()}</select></div><div class="field"><label>Jumlah unit</label><input name="qty" type="number" min="1" required value="${record.qty}"></div><div class="field"><label>Mata uang</label><select name="currency">${currencyOptions(record.currency)}</select></div><div class="field"><label>Jumlah valas</label><input name="amount" type="number" required value="${record.amount||0}"></div><div class="field"><label>Kurs saat itu</label><input name="rate" type="number" required value="${record.rate||0}"></div><div class="field"><label>Tanggal</label><input name="date" type="date" required value="${record.date}"></div>`;document.body.insertAdjacentHTML('beforeend',`<div class="modal-bg"><form class="modal" id="transactionForm"><h2>Edit ${type==='purchase'?'pembelian':type==='transfer'?'transfer stok':'pengeluaran'}</h2><div class="fields">${fields}</div><div class="actions"><button type="button" data-close>Batal</button> <button class="primary">Simpan perubahan</button></div></form></div>`);document.querySelector('#transactionForm [name="productId"]').value=record.productId;document.querySelector('#transactionForm').onsubmit=e=>updateTransaction(e)}
+function updateTransaction(e){e.preventDefault();const f=new FormData(e.target),target=db[editingTransaction.type==='purchase'?'purchases':editingTransaction.type==='transfer'?'transfers':'issues'].find(x=>x.id==editingTransaction.id),type=editingTransaction.type;const productId=f.get('productId'),qty=+f.get('qty');if(type==='purchase'){const consumed=target.qty-target.remaining;if(productId!=target.productId&&consumed>0)return alert('Batch yang sudah dipakai tidak dapat dipindah produk');if(qty<consumed)return alert(`Jumlah minimal ${consumed} unit karena batch sudah dipakai`);Object.assign(target,{productId,qty,remaining:qty-consumed,price:+f.get('price'),date:f.get('date')});recalculate(target.productId)}else if(type==='transfer'){if(productId!=target.productId||qty!==target.qty){const current=stock(target.productId).warehouse+target.qty;if(qty>current)return alert('Stok gudang tidak mencukupi')}Object.assign(target,{productId,qty,date:f.get('date')});recalculate(target.productId)}else{if(qty>stock(target.productId).display+target.qty)return alert('Stok etalase tidak mencukupi');Object.assign(target,{productId,qty,date:f.get('date'),currency:f.get('currency'),amount:+f.get('amount'),rate:+f.get('rate')})}save();document.querySelector('.modal-bg').remove();editingTransaction=null;render()}
+function deleteTransaction(type,id){const key=type==='purchase'?'purchases':type==='transfer'?'transfers':'issues';const target=db[key].find(x=>x.id==id);if(!target)return;if(type==='purchase'&&target.qty!==target.remaining)return alert('Pembelian yang sudah dipakai tidak dapat dihapus');if(!confirm('Hapus transaksi ini?'))return;const productId=target.productId;db[key]=db[key].filter(x=>x.id!=id);if(type==='transfer'||type==='purchase')recalculate(productId);save();render()}
+function closeModal(event){const closeButton=event.target.closest('[data-close]');if(!closeButton)return;event.preventDefault();closeButton.closest('.modal-bg')?.remove()}
+function movementUnitValue(productName){const item=db.products.find(x=>x.name===productName);return item?itemValue(item.id).average:0}
+function decorateMovementTable(){const reportTable=document.querySelector('#movementRows')?.closest('table');if(!reportTable)return;const headerRow=reportTable.querySelector('thead tr');if(!headerRow.querySelector('[data-value-header]')){const valueHeader=document.createElement('th');valueHeader.textContent='NILAI PRODUK';valueHeader.dataset.valueHeader='true';headerRow.insertBefore(valueHeader,headerRow.children[4])}reportTable.querySelectorAll('#movementRows tr').forEach(row=>{if(row.children.length>=6)return;const valueCell=document.createElement('td');const productName=row.children[2]?.textContent.trim();const quantity=Number(row.children[3]?.textContent.replace(/[^0-9.-]/g,''));valueCell.className='mono';valueCell.textContent=`Rp ${money(quantity*movementUnitValue(productName))}`;row.insertBefore(valueCell,row.children[4])})}
+function movement(){const rows=[...db.purchases.map(x=>({date:x.date,type:'Pembelian',product:product(x.productId)?.name||'-',qty:x.qty,detail:`${x.batch} · Rp ${money(x.price||0)}`})),...db.transfers.map(x=>({date:x.date,type:'Transfer',product:product(x.productId)?.name||'-',qty:x.qty,detail:'Gudang → Etalase'})),...db.issues.filter(x=>x.qty).map(x=>({date:x.date,type:'Pengeluaran',product:product(x.productId)?.name||'-',qty:x.qty,detail:`${x.currency} ${money(x.amount||0)} · Kurs Rp ${money(x.rate||0)}`}))];app.innerHTML=`<div class="page">${header('Laporan pergerakan stok','Seluruh pembelian, transfer, dan pengeluaran dalam satu laporan.')}<section class="panel table-panel"><div class="toolbar"><h2>Detail pergerakan</h2><div><select id="movementType"><option value="">Semua transaksi</option><option>Pembelian</option><option>Transfer</option><option>Pengeluaran</option></select><select id="movementSort"><option value="date-desc">Tanggal terbaru</option><option value="date-asc">Tanggal terlama</option><option value="product-asc">Produk A-Z</option><option value="product-desc">Produk Z-A</option><option value="qty-desc">Jumlah terbesar</option><option value="qty-asc">Jumlah terkecil</option></select></div></div><table><thead><tr><th>TANGGAL</th><th>JENIS</th><th>PRODUK</th><th>JUMLAH</th><th>DETAIL TRANSAKSI</th></tr></thead><tbody id="movementRows"></tbody></table></section></div>`;const renderRows=()=>{let filtered=rows.filter(x=>!movementType.value||x.type===movementType.value);const [field,direction]=movementSort.value.split('-');filtered.sort((a,b)=>{const av=field==='date'?a.date:field==='product'?a.product.toLowerCase():a.qty;const bv=field==='date'?b.date:field==='product'?b.product.toLowerCase():b.qty;return(av>bv?1:av<bv?-1:0)*(direction==='desc'?-1:1)});movementRows.innerHTML=filtered.map(x=>`<tr><td>${x.date}</td><td><span class="badge">${x.type}</span></td><td><b>${x.product}</b></td><td class="mono">${x.qty} unit</td><td>${x.detail}</td></tr>`).join('')||'<tr><td colspan="5">Belum ada pergerakan.</td></tr>'};const movementType=document.querySelector('#movementType'),movementSort=document.querySelector('#movementSort'),movementRows=document.querySelector('#movementRows');movementType.onchange=renderRows;movementSort.onchange=renderRows;renderRows()}
+function render(){document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('active',x.dataset.v===view));({dashboard:detailedDashboard,products:()=>table('products'),purchases:()=>table('purchases'),transfers:()=>table('transfers'),issues:()=>table('issues'),movement} [view])()}document.addEventListener('click',e=>{closeModal(e);if(e.target.closest('[data-close]'))return;const viewButton=e.target.closest('[data-v]');if(viewButton){view=viewButton.dataset.v;render();if(view==='issues')decorateIssueTable();return}const actionButton=e.target.closest('[data-action]');if(actionButton){modal(actionButton.dataset.action);return}const editButton=e.target.closest('[data-edit]');if(editButton){if(editButton.dataset.transaction)transactionModal(editButton.dataset.transaction,editButton.dataset.edit);else modal('product',editButton.dataset.edit);return}const deleteButton=e.target.closest('[data-delete]');if(deleteButton)deleteTransaction(deleteButton.dataset.transaction,deleteButton.dataset.delete)});function decorateIssueTable(){const table=document.querySelector('.table-panel table');if(!table||table.dataset.valueColumn)return;table.dataset.valueColumn='true';const headerRow=table.querySelector('thead tr');const valueHeader=document.createElement('th');valueHeader.textContent='NILAI (VALAS × KURS)';headerRow.insertBefore(valueHeader,headerRow.lastElementChild);table.querySelectorAll('tbody tr').forEach(row=>{const amount=Number(row.dataset.amount||0);const rate=Number(row.dataset.rate||0);const valueCell=document.createElement('td');valueCell.className='mono';valueCell.textContent=`Rp ${money(amount*rate)}`;row.insertBefore(valueCell,row.lastElementChild)})}render();
