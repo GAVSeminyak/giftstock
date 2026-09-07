@@ -25,6 +25,14 @@ function save() {
   window.setDoc(docRef, db).catch(err => console.error("Gagal menyimpan ke Firebase:", err));
 }
 
+function ensureTransactionIds() {
+  ['purchases', 'transfers', 'issues'].forEach((type) => {
+    db[type].forEach((transaction, index) => {
+      if (transaction.id == null) transaction.id = `${type.slice(0, -1)}-${transaction.date || 'unknown'}-${transaction.productId || 'product'}-${index}`;
+    });
+  });
+}
+
 // Fungsi sinkronisasi real-time antar perangkat
 function initFirebaseSync() {
   if (!window.dbStore) {
@@ -41,6 +49,7 @@ function initFirebaseSync() {
       db.purchases = db.purchases || [];
       db.transfers = db.transfers || [];
       db.issues = db.issues || [];
+      ensureTransactionIds();
     } else {
       save(); // Jika Firestore masih kosong, upload data seed pertama kali
     }
@@ -49,6 +58,7 @@ function initFirebaseSync() {
 }
 
 // Jalankan sync saat aplikasi pertama kali dimuat
+ensureTransactionIds();
 initFirebaseSync();
 
 // --- 2. LOGIKA FITUR LAINNYA ---
