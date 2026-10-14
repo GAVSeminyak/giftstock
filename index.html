@@ -9,7 +9,7 @@
   <!-- Firebase SDK & Config Modul -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    import { getFirestore, doc, onSnapshot, runTransaction } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyASIDsnskB16bZwdtyJclVVVCDOuxd_pSw",
@@ -25,7 +25,7 @@
     window.dbStore = getFirestore(app);
     window.doc = doc;
     window.onSnapshot = onSnapshot;
-    window.setDoc = setDoc;
+    window.runTransaction = runTransaction;
   </script>
 </head>
 <body>
