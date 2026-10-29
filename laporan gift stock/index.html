@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#18392f">
+  <title>Rekap Valas & Margin | Giftstock</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="https://gavseminyak.github.io/giftstock/" aria-label="Giftstock, kembali ke sistem inventori">
+      <span class="brand-mark">G</span>
+      <span>giftstock <small>FINANCE</small></span>
+    </a>
+    <a class="back-link" href="https://gavseminyak.github.io/giftstock/">Sistem inventori <span aria-hidden="true">&#8599;</span></a>
+  </header>
+
+  <main class="shell">
+    <section class="page-heading">
+      <div>
+        <p class="eyebrow">LAPORAN PENGELUARAN</p>
+        <h1>Rekap valas <span>&amp; margin</span></h1>
+        <p class="subtitle">Satu tanggal, ringkasan tiap mata uang, dan hasil bersih setiap transaksi.</p>
+      </div>
+      <label class="date-control">
+        <span>TANGGAL TRANSAKSI</span>
+        <input id="report-date" type="date" aria-label="Pilih tanggal transaksi">
+      </label>
+    </section>
+
+    <div id="app" aria-live="polite"></div>
+  </main>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>
